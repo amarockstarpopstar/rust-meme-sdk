@@ -1,0 +1,9 @@
+[package]
+name = "meme_game"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+meme_engine = { path = "../engine" }
+tracing = "0.1"

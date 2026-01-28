@@ -9,7 +9,10 @@ pub struct PhysicsWorld {
     narrow_phase: NarrowPhase,
     bodies: RigidBodySet,
     colliders: ColliderSet,
+    impulse_joints: ImpulseJointSet,
+    multibody_joints: MultibodyJointSet,
     ccd_solver: CCDSolver,
+    query_pipeline: QueryPipeline,
 }
 
 impl PhysicsWorld {
@@ -23,13 +26,15 @@ impl PhysicsWorld {
             narrow_phase: NarrowPhase::new(),
             bodies: RigidBodySet::new(),
             colliders: ColliderSet::new(),
+            impulse_joints: ImpulseJointSet::new(),
+            multibody_joints: MultibodyJointSet::new(),
             ccd_solver: CCDSolver::new(),
+            query_pipeline: QueryPipeline::new(),
         }
     }
 
     pub fn step(&mut self, delta_seconds: f32) {
         self.integration_parameters.dt = delta_seconds;
-        let mut query_pipeline = QueryPipeline::new();
         let hooks = ();
         let events = ();
         self.pipeline.step(
@@ -40,11 +45,14 @@ impl PhysicsWorld {
             &mut self.narrow_phase,
             &mut self.bodies,
             &mut self.colliders,
+            &mut self.impulse_joints,
+            &mut self.multibody_joints,
             &mut self.ccd_solver,
-            &(),
+            Some(&mut self.query_pipeline),
             &hooks,
             &events,
         );
-        query_pipeline.update(&self.bodies, &self.colliders);
+        self.query_pipeline
+            .update(&self.bodies, &self.colliders);
     }
 }

@@ -72,43 +72,49 @@ impl Engine {
         let mut last_frame = Instant::now();
         let target_frame_time = 1.0 / self.config.target_fps.max(1) as f32;
 
-        event_loop.run(move |event, _, control_flow| {
-            *control_flow = ControlFlow::Poll;
-            match event {
-                Event::WindowEvent { event, .. } => match event {
-                    WindowEvent::CloseRequested => {
-                        info!("engine shutdown");
-                        *control_flow = ControlFlow::Exit;
-                    }
-                    WindowEvent::Resized(size) => {
-                        if let Some(renderer) = self.renderer.as_mut() {
-                            renderer.resize(size.width, size.height);
+        event_loop
+            .run(move |event, event_loop| {
+                event_loop.set_control_flow(ControlFlow::Poll);
+                match event {
+                    Event::WindowEvent { event, .. } => match event {
+                        WindowEvent::CloseRequested => {
+                            info!("engine shutdown");
+                            event_loop.exit();
                         }
+                        WindowEvent::Resized(size) => {
+                            if let Some(renderer) = self.renderer.as_mut() {
+                                renderer.resize(size.width, size.height);
+                            }
+                        }
+                        WindowEvent::RedrawRequested => {
+                            let now = Instant::now();
+                            let delta = now.duration_since(last_frame).as_secs_f32();
+                            if delta < target_frame_time {
+                                return;
+                            }
+                            last_frame = now;
+                            self.physics.step(delta);
+                            self.scene.update(delta);
+                            let frame = RenderFrame {
+                                clear_color: self.scene.environment.clear_color,
+                            };
+                            if let Some(renderer) = self.renderer.as_mut() {
+                                if let Err(err) = renderer.render(frame) {
+                                    tracing::error!("render error: {err}");
+                                }
+                            }
+                        }
+                        _ => {}
+                    },
+                    Event::AboutToWait => {
+                        window.request_redraw();
                     }
                     _ => {}
-                },
-                Event::MainEventsCleared => {
-                    let now = Instant::now();
-                    let delta = now.duration_since(last_frame).as_secs_f32();
-                    if delta < target_frame_time {
-                        return;
-                    }
-                    last_frame = now;
-                    self.physics.step(delta);
-                    self.scene.update(delta);
-                    let frame = RenderFrame {
-                        clear_color: self.scene.environment.clear_color,
-                    };
-                    if let Some(renderer) = self.renderer.as_mut() {
-                        if let Err(err) = renderer.render(frame) {
-                            tracing::error!("render error: {err}");
-                        }
-                    }
-                    window.request_redraw();
                 }
-                Event::RedrawRequested(_) => {}
-                _ => {}
-            }
-        });
+            })
+            .map_err(|err| {
+                EngineError::WindowCreation(format!("event loop failed: {err:?}"))
+            })?;
+        Ok(())
     }
 }

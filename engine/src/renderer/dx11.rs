@@ -73,7 +73,7 @@ impl Dx11Renderer {
                 D3D11_CREATE_DEVICE_BGRA_SUPPORT,
                 Some(&[D3D_FEATURE_LEVEL_11_0]),
                 D3D11_SDK_VERSION,
-                &swap_chain_desc,
+                Some(&swap_chain_desc),
                 Some(&mut swap_chain),
                 Some(&mut device),
                 None,
@@ -136,6 +136,7 @@ impl Dx11Renderer {
             self.context.ClearRenderTargetView(&self.render_target, &color);
             self.swap_chain
                 .Present(1, 0)
+                .ok()
                 .map_err(|err| EngineError::Runtime(format!("present failed: {err:?}")))?;
         }
         Ok(())
@@ -164,17 +165,16 @@ fn create_render_target(
     swap_chain: &IDXGISwapChain,
 ) -> Result<ID3D11RenderTargetView, EngineError> {
     unsafe {
-        let mut back_buffer = None;
-        swap_chain
-            .GetBuffer(0, &ID3D11Texture2D::IID, &mut back_buffer)
+        let back_buffer: ID3D11Texture2D = swap_chain
+            .GetBuffer(0)
             .map_err(|err| EngineError::RendererInit(format!("back buffer: {err:?}")))?;
-        let back_buffer = back_buffer.ok_or_else(|| {
-            EngineError::RendererInit("missing back buffer".to_string())
-        })?;
-        let render_target = device
-            .CreateRenderTargetView(&back_buffer, None)
+        let mut render_target = None;
+        device
+            .CreateRenderTargetView(&back_buffer, None, Some(&mut render_target))
             .map_err(|err| EngineError::RendererInit(format!("rtv: {err:?}")))?;
-        Ok(render_target)
+        render_target.ok_or_else(|| {
+            EngineError::RendererInit("missing render target".to_string())
+        })
     }
 }
 

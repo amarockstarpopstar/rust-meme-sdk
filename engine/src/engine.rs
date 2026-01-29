@@ -70,6 +70,7 @@ impl Engine {
         self.renderer = Some(Renderer::new(&window)?);
         info!("engine startup");
         let mut last_frame = Instant::now();
+        let start_time = Instant::now();
         let target_frame_time = 1.0 / self.config.target_fps.max(1) as f32;
 
         event_loop
@@ -97,6 +98,7 @@ impl Engine {
                             self.scene.update(delta);
                             let frame = RenderFrame {
                                 clear_color: self.scene.environment.clear_color,
+                                time_seconds: start_time.elapsed().as_secs_f32(),
                             };
                             if let Some(renderer) = self.renderer.as_mut() {
                                 if let Err(err) = renderer.render(frame) {

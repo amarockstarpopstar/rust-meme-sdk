@@ -5,6 +5,7 @@ use glam::Vec4;
 
 pub struct RenderFrame {
     pub clear_color: Vec4,
+    pub time_seconds: f32,
 }
 
 pub struct Renderer {

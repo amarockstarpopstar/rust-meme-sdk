@@ -58,7 +58,7 @@ impl Engine {
     }
 
     pub fn run(mut self) -> EngineResult<()> {
-        let mut event_loop = EventLoop::new().map_err(|err| {
+        let event_loop = EventLoop::new().map_err(|err| {
             EngineError::WindowCreation(format!("event loop init failed: {err:?}"))
         })?;
         let window = WindowBuilder::new()

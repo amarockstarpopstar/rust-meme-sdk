@@ -13,7 +13,9 @@ use std::mem::size_of;
 #[cfg(target_os = "windows")]
 use windows::Win32::Foundation::HWND;
 #[cfg(target_os = "windows")]
-use windows::Win32::Graphics::Direct3D::{D3D_DRIVER_TYPE_HARDWARE, D3D_FEATURE_LEVEL_11_0};
+use windows::Win32::Graphics::Direct3D::{
+    D3D_DRIVER_TYPE_HARDWARE, D3D_FEATURE_LEVEL_11_0, D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST,
+};
 #[cfg(target_os = "windows")]
 use windows::Win32::Graphics::Direct3D::Fxc::{
     D3DCompile, D3DCOMPILE_ENABLE_STRICTNESS, D3DCOMPILE_OPTIMIZATION_LEVEL3,
@@ -26,8 +28,7 @@ use windows::Win32::Graphics::Direct3D11::{
     ID3D11RenderTargetView, ID3D11Texture2D, ID3D11VertexShader, D3D11_BIND_CONSTANT_BUFFER,
     D3D11_BIND_DEPTH_STENCIL, D3D11_BIND_INDEX_BUFFER, D3D11_BIND_VERTEX_BUFFER,
     D3D11_CLEAR_DEPTH, D3D11_CLEAR_STENCIL, D3D11_CREATE_DEVICE_BGRA_SUPPORT,
-    D3D11_INPUT_PER_VERTEX_DATA, D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST,
-    D3D11_SDK_VERSION, D3D11_USAGE_DEFAULT,
+    D3D11_INPUT_PER_VERTEX_DATA, D3D11_SDK_VERSION, D3D11_USAGE_DEFAULT,
 };
 #[cfg(target_os = "windows")]
 use windows::Win32::Graphics::Dxgi::{
@@ -38,8 +39,6 @@ use windows::Win32::Graphics::Dxgi::Common::{
     DXGI_FORMAT_D24_UNORM_S8_UINT, DXGI_FORMAT_R16_UINT, DXGI_FORMAT_R32G32B32_FLOAT,
     DXGI_FORMAT_R8G8B8A8_UNORM, DXGI_MODE_DESC, DXGI_SAMPLE_DESC,
 };
-#[cfg(target_os = "windows")]
-use windows::Win32::System::SystemServices::D3D_COMPILE_STANDARD_FILE_INCLUDE;
 #[cfg(target_os = "windows")]
 use windows::core::PCSTR;
 
@@ -173,28 +172,33 @@ impl Dx11Renderer {
             mvp: transform.to_cols_array_2d(),
         };
         unsafe {
-            self.context.OMSetRenderTargets(Some(&[Some(
-                self.render_target.clone(),
-            )]), Some(self.depth_view.clone()));
+            self.context.OMSetRenderTargets(
+                Some(&[Some(self.render_target.clone())]),
+                Some(&self.depth_view),
+            );
             self.context.ClearRenderTargetView(&self.render_target, &color);
             self.context.ClearDepthStencilView(
                 &self.depth_view,
-                D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL,
+                (D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL).0,
                 1.0,
                 0,
             );
             self.context.IASetInputLayout(Some(&self.input_layout));
             let stride = size_of::<Vertex>() as u32;
             let offset = 0u32;
+            let buffers = [Some(self.vertex_buffer.clone())];
+            let strides = [stride];
+            let offsets = [offset];
             self.context.IASetVertexBuffers(
                 0,
-                Some(&[Some(self.vertex_buffer.clone())]),
-                Some(&[stride]),
-                Some(&[offset]),
+                1,
+                Some(buffers.as_ptr()),
+                Some(strides.as_ptr()),
+                Some(offsets.as_ptr()),
             );
             self.context.IASetIndexBuffer(&self.index_buffer, DXGI_FORMAT_R16_UINT, 0);
             self.context
-                .IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+                .IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
             self.context.VSSetShader(Some(&self.vertex_shader), None);
             self.context.PSSetShader(Some(&self.pixel_shader), None);
             self.context.UpdateSubresource(
@@ -419,26 +423,24 @@ float4 main(PSInput input) : SV_TARGET {
 
     unsafe {
         let mut vertex_shader = None;
+        let vertex_shader_bytes = std::slice::from_raw_parts(
+            vertex_blob.GetBufferPointer() as *const u8,
+            vertex_blob.GetBufferSize(),
+        );
         device
-            .CreateVertexShader(
-                vertex_blob.GetBufferPointer(),
-                vertex_blob.GetBufferSize(),
-                None,
-                Some(&mut vertex_shader),
-            )
+            .CreateVertexShader(vertex_shader_bytes, None, Some(&mut vertex_shader))
             .map_err(|err| EngineError::RendererInit(format!("vertex shader: {err:?}")))?;
         let vertex_shader = vertex_shader.ok_or_else(|| {
             EngineError::RendererInit("missing vertex shader".to_string())
         })?;
 
         let mut pixel_shader = None;
+        let pixel_shader_bytes = std::slice::from_raw_parts(
+            pixel_blob.GetBufferPointer() as *const u8,
+            pixel_blob.GetBufferSize(),
+        );
         device
-            .CreatePixelShader(
-                pixel_blob.GetBufferPointer(),
-                pixel_blob.GetBufferSize(),
-                None,
-                Some(&mut pixel_shader),
-            )
+            .CreatePixelShader(pixel_shader_bytes, None, Some(&mut pixel_shader))
             .map_err(|err| EngineError::RendererInit(format!("pixel shader: {err:?}")))?;
         let pixel_shader = pixel_shader.ok_or_else(|| {
             EngineError::RendererInit("missing pixel shader".to_string())
@@ -466,12 +468,7 @@ float4 main(PSInput input) : SV_TARGET {
         ];
         let mut input_layout = None;
         device
-            .CreateInputLayout(
-                &input_elements,
-                vertex_blob.GetBufferPointer(),
-                vertex_blob.GetBufferSize(),
-                Some(&mut input_layout),
-            )
+            .CreateInputLayout(&input_elements, vertex_shader_bytes, Some(&mut input_layout))
             .map_err(|err| EngineError::RendererInit(format!("input layout: {err:?}")))?;
         let input_layout = input_layout.ok_or_else(|| {
             EngineError::RendererInit("missing input layout".to_string())
@@ -503,7 +500,7 @@ fn compile_shader(
             source.len(),
             PCSTR::null(),
             None,
-            D3D_COMPILE_STANDARD_FILE_INCLUDE,
+            None,
             PCSTR(entry.as_ptr().cast()),
             PCSTR(target.as_ptr().cast()),
             D3DCOMPILE_ENABLE_STRICTNESS | D3DCOMPILE_OPTIMIZATION_LEVEL3,
